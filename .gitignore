@@ -1,0 +1,54 @@
+# Target directory for compiled Rust files
+/target/
+
+# Build artifacts
+**/*.rs.bk
+
+# Rust package manager (Cargo)
+/Cargo.lock
+/.cargo/
+.cargo/config.toml
+.cargo/config
+
+# JetBrains IDE-specific files
+.idea/
+*.iml
+.idea_modules/
+
+# IDE runtime files
+/out/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/dictionaries/
+.idea/vcs.xml
+.idea/usage.statistics.xml
+.idea/assetWizardSettings.xml
+
+# Local history and workspace files
+.idea/localHistory/
+.idea/workspace.xml
+.idea/libraries/
+
+# Logs
+*.log
+.idea/repl_history/
+.idea/compiler.xml
+
+# Rust Rover file history and caches
+.idea/.gitignore
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.swn
+*.old
+*.~*
+
+# Mac OS
+.DS_Store
+
+# Windows
+Thumbs.db
