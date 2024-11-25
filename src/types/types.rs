@@ -16,8 +16,21 @@ pub struct ColumnDefinition {
     pub(crate) unique: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct TableDefinition {
     pub(crate) name: String,
     pub(crate) columns: Vec<ColumnDefinition>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct InsertDefinition {
+    pub(crate) name: String,
+    #[serde(skip)]
+    pub(crate) table_definition: TableDefinition,
+    pub(crate) values: Vec<String>
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DropDefinition {
+    pub(crate) name: String,
 }
