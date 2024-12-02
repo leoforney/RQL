@@ -1,8 +1,9 @@
+use crate::io::reader::{read_table_definition, read_vec_of_bytes_from_file};
+use crate::io::writer::{append_vec_of_bytes_to_file, write_table_definition};
+use crate::types::types::{ColumnDefinition, DataType, InsertDefinition, SelectDefinition, TableDefinition, Value};
+use std::collections::HashMap;
 use std::io;
 use std::io::Write;
-use crate::io::reader::read_table_definition;
-use crate::io::writer::{append_vec_of_bytes_to_file, write_table_definition};
-use crate::types::types::{ColumnDefinition, DataType, InsertDefinition, TableDefinition};
 
 impl DataType {
     pub(crate) fn from_sql_type(sql_type: &str) -> Option<DataType> {
@@ -170,9 +171,91 @@ impl InsertDefinition {
             row_data.extend(serialized_value);
         }
 
-        append_vec_of_bytes_to_file(vec![row_data], &format!("{}.dat", self.name))?;
+        append_vec_of_bytes_to_file(vec![vec![row_data]], self.name.as_str())?;
 
         Ok(())
+    }
+}
+
+impl SelectDefinition {
+    pub fn from_sql(sql: &str) -> Option<Self> {
+        let sql = sql.trim().trim_end_matches(';'); // Remove trailing semicolon
+        if !sql.starts_with("SELECT") || !sql.contains("FROM") {
+            return None;
+        }
+
+        let table_start = sql.find("FROM")? + 5;
+        let table_end = sql.find("WHERE").unwrap_or_else(|| sql.len());
+        let table_name = sql[table_start..table_end].trim().to_string();
+
+        let criteria = if let Some(where_index) = sql.find("WHERE") {
+            sql[where_index + 6..].trim().to_string()
+        } else {
+            String::new()
+        };
+
+        Some(SelectDefinition {
+            table_name,
+            criteria,
+        })
+    }
+
+    pub fn execute(&self) -> io::Result<Vec<HashMap<String, Value>>> {
+        let (criteria_key, criteria_value) = self.parse_criteria()?;
+
+        let all_rows = read_vec_of_bytes_from_file(self.table_name.as_str())?;
+
+        let filtered_rows: Vec<HashMap<String, Value>> = all_rows
+            .into_iter()
+            .filter(|row| {
+                if let Some(value) = row.get(&criteria_key) {
+                    value.to_string() == criteria_value
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        Ok(filtered_rows)
+    }
+
+    fn parse_criteria(&self) -> io::Result<(String, String)> {
+        let parts: Vec<&str> = self.criteria.split('=').collect();
+        if parts.len() != 2 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid criteria format. Expected 'key=value'",
+            ));
+        }
+
+        let key = parts[0].trim().to_string();
+        let value = parts[1].trim().to_string();
+
+        Ok((key, value))
+    }
+
+    fn matches_criteria(&self, row_values: &[String], table_definition: &TableDefinition) -> bool {
+        if self.criteria.is_empty() {
+            return true;
+        }
+
+        let parts: Vec<&str> = self.criteria.split('=').map(|s| s.trim()).collect();
+        if parts.len() != 2 {
+            return false;
+        }
+        let column_name = parts[0];
+        let value = parts[1].replace("'", "");
+
+        if let Some((index, _)) = table_definition
+            .columns
+            .iter()
+            .enumerate()
+            .find(|(_, col)| col.name == column_name)
+        {
+            return row_values.get(index).map(|v| v == &value).unwrap_or(false);
+        }
+
+        false
     }
 }
 
@@ -195,7 +278,18 @@ impl QueryRunner {
             } else {
                 println!("Error: Invalid INSERT INTO syntax.");
             }
-        } else {
+        } else if command.starts_with("SELECT") {
+            if let Some(select_def) = SelectDefinition::from_sql(command) {
+                let rows = select_def.execute()?;
+
+                for row in rows {
+                    for (key, value) in &row {
+                        println!("{}: {}", key, value);
+                    }
+                }
+            }
+        }
+        else {
             println!("Error: Unsupported command.");
         }
         Ok(())

@@ -32,5 +32,26 @@ pub struct InsertDefinition {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DropDefinition {
-    pub(crate) name: String,
+    pub(crate) table_name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CriteriaDefinition {
+    pub(crate) criteria_type: String,
+    pub(crate) column_name: String,
+    pub(crate) value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SelectDefinition {
+    pub(crate) table_name: String,
+    pub(crate) criteria: String,
+}
+
+#[derive(Debug)]
+pub enum Value {
+    Integer(i32),
+    Float(f64),
+    Text(String),
+    Boolean(bool),
 }

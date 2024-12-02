@@ -1,7 +1,7 @@
-use std::{fs, io};
+use crate::types::types::TableDefinition;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use crate::types::types::{TableDefinition};
+use std::{fs, io};
 
 pub fn write_table_definition(table_definition: &TableDefinition) -> io::Result<()> {
     fs::create_dir_all("schema")?;
@@ -16,10 +16,10 @@ pub fn write_table_definition(table_definition: &TableDefinition) -> io::Result<
     Ok(())
 }
 
-pub fn append_vec_of_bytes_to_file(data: Vec<Vec<u8>>, table_name: &str) -> io::Result<()> {
+pub fn append_vec_of_bytes_to_file(data: Vec<Vec<Vec<u8>>>, table_name: &str) -> io::Result<()> {
     fs::create_dir_all("data")?;
 
-    let table_name_lowercase = table_name.clone().to_lowercase() + "_data.bin";
+    let table_name_lowercase = table_name.to_lowercase() + "_data.bin";
     let file_path = format!("data/{}", table_name_lowercase);
 
     let mut file = OpenOptions::new()
@@ -27,11 +27,20 @@ pub fn append_vec_of_bytes_to_file(data: Vec<Vec<u8>>, table_name: &str) -> io::
         .create(true)
         .open(file_path)?;
 
-    for bytes in data {
-        let size = bytes.len() as u64;
-        // Size then bytes
-        file.write_all(&size.to_le_bytes())?;
-        file.write_all(&bytes)?;
+    for row in data {
+        let mut row_data = Vec::new();
+
+        for column in row {
+            row_data.extend(column);
+        }
+
+        let row_size = row_data.len() as u64;
+        
+        file.write_all(&[0xAB])?;
+        file.write_all(&row_size.to_le_bytes())?;
+        file.write_all(&[0xCD])?;
+        
+        file.write_all(&row_data)?;
     }
 
     Ok(())
