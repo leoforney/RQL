@@ -4,6 +4,8 @@ use crate::types::types::{ColumnDefinition, DataType, InsertDefinition, SelectDe
 use std::collections::HashMap;
 use std::io;
 use std::io::Write;
+use prettytable::{Cell, Row, Table};
+use prettytable::format;
 
 impl DataType {
     pub(crate) fn from_sql_type(sql_type: &str) -> Option<DataType> {
@@ -194,68 +196,60 @@ impl SelectDefinition {
             String::new()
         };
 
+        let parsed_criteria = SelectDefinition::parse_criteria(&criteria)?;
+
         Some(SelectDefinition {
             table_name,
-            criteria,
+            criteria: parsed_criteria,
         })
     }
 
     pub fn execute(&self) -> io::Result<Vec<HashMap<String, Value>>> {
-        let (criteria_key, criteria_value) = self.parse_criteria()?;
-
         let all_rows = read_vec_of_bytes_from_file(self.table_name.as_str())?;
 
         let filtered_rows: Vec<HashMap<String, Value>> = all_rows
             .into_iter()
-            .filter(|row| {
-                if let Some(value) = row.get(&criteria_key) {
-                    value.to_string() == criteria_value
-                } else {
-                    false
-                }
-            })
+            .filter(|row| self.matches_criteria(row))
             .collect();
 
         Ok(filtered_rows)
     }
 
-    fn parse_criteria(&self) -> io::Result<(String, String)> {
-        let parts: Vec<&str> = self.criteria.split('=').collect();
-        if parts.len() != 2 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Invalid criteria format. Expected 'key=value'",
-            ));
+    fn parse_criteria(criteria: &str) -> Option<Vec<(String, String, String)>> {
+        if criteria.is_empty() {
+            return Some(vec![]);
         }
 
-        let key = parts[0].trim().to_string();
-        let value = parts[1].trim().to_string();
+        let conditions: Vec<&str> = criteria
+            .split("AND")
+            .flat_map(|part| part.split("OR"))
+            .map(|s| s.trim())
+            .collect();
 
-        Ok((key, value))
+        let mut parsed_conditions = vec![];
+
+        for condition in conditions {
+            let parts: Vec<&str> = condition.split('=').collect();
+            if parts.len() != 2 {
+                return None;
+            }
+
+            let key = parts[0].trim().to_string();
+            let value = parts[1].trim().replace("'", "").to_string();
+
+            parsed_conditions.push((key, "=".to_string(), value)); // TODO: Implement more than =
+        }
+
+        Some(parsed_conditions)
     }
 
-    fn matches_criteria(&self, row_values: &[String], table_definition: &TableDefinition) -> bool {
-        if self.criteria.is_empty() {
-            return true;
-        }
-
-        let parts: Vec<&str> = self.criteria.split('=').map(|s| s.trim()).collect();
-        if parts.len() != 2 {
-            return false;
-        }
-        let column_name = parts[0];
-        let value = parts[1].replace("'", "");
-
-        if let Some((index, _)) = table_definition
-            .columns
-            .iter()
-            .enumerate()
-            .find(|(_, col)| col.name == column_name)
-        {
-            return row_values.get(index).map(|v| v == &value).unwrap_or(false);
-        }
-
-        false
+    fn matches_criteria(&self, row: &HashMap<String, Value>) -> bool {
+        self.criteria.iter().all(|(key, operator, value)| {
+            match operator.as_str() {
+                "=" => row.get(key).map(|v| v.to_string() == *value).unwrap_or(false),
+                _ => false,
+            }
+        })
     }
 }
 
@@ -282,11 +276,30 @@ impl QueryRunner {
             if let Some(select_def) = SelectDefinition::from_sql(command) {
                 let rows = select_def.execute()?;
 
-                for row in rows {
-                    for (key, value) in &row {
-                        println!("{}: {}", key, value);
-                    }
+                let mut table = Table::new();
+                table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+                
+                let mut column_order: Vec<String> = Vec::new(); // TODO: Match order with table definition and allow select of individual/grouped columns
+                
+                if let Some(first_row) = rows.get(0) {
+                    column_order = first_row.keys().cloned().collect();
+                    let headers: Vec<Cell> = column_order.iter().map(|key| Cell::new(key)).collect();
+                    table.set_titles(Row::new(headers));
                 }
+                
+                for row in rows {
+                    let cells: Vec<Cell> = column_order
+                        .iter()
+                        .map(|key| {
+                            row.get(key)
+                                .map(|value| Cell::new(&*value.to_string()))
+                                .unwrap_or_else(|| Cell::new(""))
+                        })
+                        .collect();
+                    table.add_row(Row::new(cells));
+                }
+                
+                table.printstd();
             }
         }
         else {
@@ -296,7 +309,7 @@ impl QueryRunner {
     }
 
     pub fn repl() -> io::Result<()> {
-        println!("Welcome to the RQL REPL. Type your RQL commands below. Type 'EXIT' to quit.");
+        println!("Welcome to the RQL. Type your RQL commands below. Type 'EXIT' to quit.");
 
         loop {
             print!("rql> ");

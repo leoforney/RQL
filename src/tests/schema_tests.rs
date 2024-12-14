@@ -1,8 +1,8 @@
 #[cfg(test)]
 pub mod tests {
+    use regex::Regex;
     use crate::io::writer::write_table_definition;
     use crate::types::types::TableDefinition;
-    use regex::Regex;
 
     fn reduce_spaces(input: &str) -> String {
         let re = Regex::new(r"\s{2,}").unwrap();

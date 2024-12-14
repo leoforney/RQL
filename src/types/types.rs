@@ -45,7 +45,7 @@ pub struct CriteriaDefinition {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SelectDefinition {
     pub(crate) table_name: String,
-    pub(crate) criteria: String,
+    pub(crate) criteria: Vec<(String, String, String)>,
 }
 
 #[derive(Debug)]
