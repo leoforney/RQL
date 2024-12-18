@@ -1,13 +1,12 @@
+use crate::query::runner::QueryRunner;
+
 mod types;
 mod query;
 mod io;
 mod tests;
+mod rqle;
 
-use serde::{Deserialize, Serialize};
-use std::io::{Read, Result, Write};
-use crate::query::query::QueryRunner;
-
-fn main() -> Result<()> {
-    QueryRunner::repl()?;
+fn main() -> Result<(), ()> {
+    QueryRunner::repl().expect("TODO: panic message");
     Ok(())
 }

@@ -63,7 +63,7 @@ pub fn read_vec_of_bytes_from_file(table_name: &str) -> io::Result<Vec<HashMap<S
                     Value::Integer(value)
                 }
                 DataType::Float => {
-                    let value: f64 = bincode::deserialize_from(&mut cursor).map_err(|e| {
+                    let value: f32 = bincode::deserialize_from(&mut cursor).map_err(|e| {
                         io::Error::new(io::ErrorKind::InvalidData, format!("Deserialization error: {}", e))
                     })?;
                     Value::Float(value)

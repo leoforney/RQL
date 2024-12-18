@@ -1,11 +1,13 @@
 use crate::io::reader::{read_table_definition, read_vec_of_bytes_from_file};
-use crate::io::writer::{append_vec_of_bytes_to_file, write_table_definition};
-use crate::types::types::{ColumnDefinition, DataType, InsertDefinition, SelectDefinition, TableDefinition, Value};
+use crate::io::util::{print_table, reconstruct_rows};
+use crate::io::writer::append_vec_of_bytes_to_file;
+use crate::rqle::rqle_parser::ExpressionParser;
+use crate::rqle::shader_executor::ShaderExecutor;
+use crate::types::types::{ColumnDefinition, DataType, InsertDefinition, SelectDefinition, TableDefinition, UpdateDefinition, Value};
+use regex::Regex;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::io;
-use std::io::Write;
-use prettytable::{Cell, Row, Table};
-use prettytable::format;
 
 impl DataType {
     pub(crate) fn from_sql_type(sql_type: &str) -> Option<DataType> {
@@ -29,7 +31,7 @@ impl DataType {
     fn rust_type(&self) -> &str {
         match self {
             DataType::Integer => "i32",
-            DataType::Float => "f64",
+            DataType::Float => "f32",
             DataType::Text => "String",
             DataType::Boolean => "bool",
         }
@@ -157,7 +159,7 @@ impl InsertDefinition {
                     bincode::serialize(&parsed).unwrap()
                 }
                 DataType::Float => {
-                    let parsed: f64 = value.parse().map_err(|_| {
+                    let parsed: f32 = value.parse::<f32>().map_err(|_| {
                         io::Error::new(io::ErrorKind::InvalidInput, "Invalid float value")
                     })?;
                     bincode::serialize(&parsed).unwrap()
@@ -181,7 +183,7 @@ impl InsertDefinition {
 
 impl SelectDefinition {
     pub fn from_sql(sql: &str) -> Option<Self> {
-        let sql = sql.trim().trim_end_matches(';'); // Remove trailing semicolon
+        let sql = sql.trim().trim_end_matches(';');
         if !sql.starts_with("SELECT") || !sql.contains("FROM") {
             return None;
         }
@@ -253,81 +255,136 @@ impl SelectDefinition {
     }
 }
 
-pub struct QueryRunner;
+impl UpdateDefinition {
+    pub fn from_sql(sql: &str) -> Option<Self> {
+        let sql = sql.trim().trim_end_matches(';');
 
-impl QueryRunner {
-    pub fn run_command(command: &str) -> io::Result<()> {
-        let command = command.trim();
-        if command.starts_with("CREATE TABLE") {
-            if let Some(table_def) = TableDefinition::from_sql(command) {
-                write_table_definition(&table_def)?;
-                println!("Table '{}' created successfully.", table_def.name);
-            } else {
-                println!("Error: Invalid CREATE TABLE syntax.");
-            }
-        } else if command.starts_with("INSERT INTO") {
-            if let Some(mut insert_def) = InsertDefinition::from_sql(command) {
-                insert_def.validate_and_insert()?;
-                println!("Row inserted successfully into table '{}'.", insert_def.name);
-            } else {
-                println!("Error: Invalid INSERT INTO syntax.");
-            }
-        } else if command.starts_with("SELECT") {
-            if let Some(select_def) = SelectDefinition::from_sql(command) {
-                let rows = select_def.execute()?;
+        if !sql.starts_with("UPDATE") || !sql.contains("SET") {
+            return None;
+        }
 
-                let mut table = Table::new();
-                table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-                
-                let mut column_order: Vec<String> = Vec::new(); // TODO: Match order with table definition and allow select of individual/grouped columns
-                
-                if let Some(first_row) = rows.get(0) {
-                    column_order = first_row.keys().cloned().collect();
-                    let headers: Vec<Cell> = column_order.iter().map(|key| Cell::new(key)).collect();
-                    table.set_titles(Row::new(headers));
-                }
-                
-                for row in rows {
-                    let cells: Vec<Cell> = column_order
-                        .iter()
-                        .map(|key| {
-                            row.get(key)
-                                .map(|value| Cell::new(&*value.to_string()))
-                                .unwrap_or_else(|| Cell::new(""))
-                        })
-                        .collect();
-                    table.add_row(Row::new(cells));
-                }
-                
-                table.printstd();
-            }
-        }
-        else {
-            println!("Error: Unsupported command.");
-        }
-        Ok(())
+        let table_start = "UPDATE ".len();
+        let table_end = sql.find("SET")?;
+        let table_name = sql[table_start..table_end].trim().to_string();
+
+        let set_start = table_end + "SET".len();
+        let set_query = sql[set_start..].trim().to_string();
+
+        Some(UpdateDefinition {
+            table_name,
+            set_query,
+        })
     }
 
-    pub fn repl() -> io::Result<()> {
-        println!("Welcome to the RQL. Type your RQL commands below. Type 'EXIT' to quit.");
+    pub fn load_data(&self) -> io::Result<HashMap<String, Vec<Value>>> {
 
-        loop {
-            print!("rql> ");
-            io::stdout().flush()?;
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
+        let table_def = read_table_definition(self.table_name.as_str())?;
 
-            let input = input.trim();
-            if input.eq_ignore_ascii_case("EXIT") {
-                println!("Exiting REPL.");
-                break;
-            }
+        let all_rows: Vec<HashMap<String, Value>> = read_vec_of_bytes_from_file(self.table_name.as_str())?;
 
-            if let Err(e) = QueryRunner::run_command(input) {
-                eprintln!("Error: {}", e);
+        let mut column_map: HashMap<String, Vec<Value>> = HashMap::new();
+
+        for row in all_rows {
+            for (key, value) in row {
+                let key_is_number = table_def
+                    .columns
+                    .iter()
+                    .any(|i| (i.data_type == DataType::Float || i.data_type == DataType::Integer) && i.name == key);
+                if key_is_number {
+                    column_map
+                        .entry(key)
+                        .or_insert_with(Vec::new)
+                        .push(value);
+                }
             }
         }
 
-        Ok(())
+        let mut binding_counter = 0;
+
+        let wgsl_declarations: Vec<String> = column_map.keys()
+            .map(|key| {
+                let column_type = table_def
+                    .columns
+                    .iter()
+                    .find(|col| col.name == *key)
+                    .map(|col| match col.data_type {
+                        DataType::Integer => "array<i32>",
+                        DataType::Float => "array<f32>",
+                        _ => "array<unknown>",
+                    })
+                    .unwrap();
+
+                let declaration = format!(
+                    "@group(0)\n@binding({})\nvar<storage, read_write> {}: {};",
+                    binding_counter, key, column_type
+                );
+
+                binding_counter += 1;
+                declaration
+            })
+            .collect();
+
+        let wgsl_code_header = wgsl_declarations.join("\n\n");
+
+        let assignments = match ExpressionParser::parse(&*self.set_query) {
+            Ok(intermediary_code) => {
+                intermediary_code.assignments
+            }
+            Err(err) => panic!("Failed to parse intermediary code {}", err),
+        };
+
+        let statements = assignments
+            .iter()
+            .map(|assignment| {
+                let mut adjusted_expression = assignment.expression.clone();
+                for key in column_map.keys() {
+                    let pattern = format!(r"\b{}\b", key);
+                    let replacement = format!("{}[sys_index]", key);
+
+                    let regex = Regex::new(&pattern).unwrap();
+                    adjusted_expression = regex.replace_all(&adjusted_expression, replacement.as_str()).to_string();
+                }
+
+                if column_map.contains_key(&assignment.variable) {
+                    format!(
+                        "{}[sys_index] = {};",
+                        assignment.variable,
+                        adjusted_expression
+                    )
+                } else {
+                    format!(
+                        "let {} = {};",
+                        assignment.variable,
+                        adjusted_expression
+                    )
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        let total_wgsl_code = wgsl_code_header + "
+@compute
+@workgroup_size(64, 1, 1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>,
+        @builtin(workgroup_id) wid: vec3<u32>) {
+    let sys_index = wid.x * 64u + lid.x;
+    if (sys_index < arrayLength(&" + column_map.keys().next().unwrap() + ")) {"
+        + &statements +
+"    }
+}";
+
+        let new_vals = ShaderExecutor.main(total_wgsl_code, column_map, table_def);
+
+        let reconstructed_rows = reconstruct_rows(new_vals);
+        print_table(reconstructed_rows);
+
+        let empty_map: HashMap<String, Vec<Value>> = HashMap::new();
+
+        Ok(empty_map)
+    }
+
+    pub fn execute() {
+
     }
 }

@@ -1,0 +1,17 @@
+WHITESPACE = _{ " " | "\t" }
+NEWLINE = _{ "\n" | "\r\n" }
+CONTINUATION = _{ "\\" ~ NEWLINE }
+
+update_stmt = { assignments* }
+assignments = { assignment ~ ("," ~ assignment)* }
+assignment = { variable ~ "=" ~ expression }
+
+variable = @{ (ASCII_ALPHANUMERIC | "_")+ }
+expression = { term ~ (arithmetic_op ~ term)* }
+term = { factor ~ (("*" | "/") ~ factor)* }
+factor = { function_call | number | variable | "(" ~ expression ~ ")" }
+function_call = { identifier ~ "(" ~ function_args ~ ")" }
+function_args = { expression ~ ("," ~ expression)* }
+arithmetic_op = _{ "+" | "-" | "*" | "/" | "%" }
+number = @{ "-"? ~ (ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)?) }
+identifier = @{ (ASCII_ALPHANUMERIC | "_")+ }

@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum DataType {
     Integer,
     Float,
@@ -8,7 +9,7 @@ pub enum DataType {
     Boolean,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct ColumnDefinition {
     pub(crate) name: String,
     pub(crate) data_type: DataType,
@@ -48,10 +49,16 @@ pub struct SelectDefinition {
     pub(crate) criteria: Vec<(String, String, String)>,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UpdateDefinition {
+    pub(crate) table_name: String,
+    pub(crate) set_query: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Value {
     Integer(i32),
-    Float(f64),
+    Float(f32),
     Text(String),
     Boolean(bool),
 }

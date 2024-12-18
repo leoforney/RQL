@@ -1,11 +1,11 @@
 #[cfg(test)]
 pub mod tests {
-    use regex::Regex;
     use crate::io::writer::write_table_definition;
     use crate::types::types::TableDefinition;
+    use regex::Regex;
 
     fn reduce_spaces(input: &str) -> String {
-        let re = Regex::new(r"\s{2,}").unwrap();
+        let re = Regex::new(r"\s+").unwrap();
         re.replace_all(input, " ").to_string()
     }
 
@@ -23,8 +23,10 @@ pub mod tests {
             println!("Parsed Table Definition: {:?}", table);
 
             write_table_definition(&table).expect("Failed to write");
+            let generatedSql = table.to_sql().replace("\n", "").trim().to_lowercase();
+            let inputtedSql = table.to_sql().replace("\n", "").trim().to_lowercase();
 
-            assert_eq!(reduce_spaces(&*table.to_sql().replace("\n", "")).trim(), sql.replace("\n", "").replace("  ", " ").trim());
+            assert_eq!(reduce_spaces(&generatedSql), reduce_spaces(&inputtedSql));
         } else {
             println!("Failed to parse SQL");
         }

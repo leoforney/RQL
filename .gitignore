@@ -52,3 +52,6 @@
 
 # Windows
 Thumbs.db
+
+data/
+schema/
