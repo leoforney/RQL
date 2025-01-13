@@ -1,6 +1,6 @@
 use crate::io::reader::{read_table_definition, read_vec_of_bytes_from_file};
 use crate::io::util::{print_table, reconstruct_rows};
-use crate::io::writer::append_vec_of_bytes_to_file;
+use crate::io::writer::{serialize_from_value, serialize_value, write_vec_of_bytes_to_file};
 use crate::rqle::rqle_parser::ExpressionParser;
 use crate::rqle::shader_executor::ShaderExecutor;
 use crate::types::types::{ColumnDefinition, DataType, InsertDefinition, SelectDefinition, TableDefinition, UpdateDefinition, Value};
@@ -151,31 +151,11 @@ impl InsertDefinition {
 
         let mut row_data = Vec::new();
         for (value, column) in self.values.iter().zip(self.table_definition.columns.iter()) {
-            let serialized_value = match column.data_type {
-                DataType::Integer => {
-                    let parsed: i32 = value.parse().map_err(|_| {
-                        io::Error::new(io::ErrorKind::InvalidInput, "Invalid integer value")
-                    })?;
-                    bincode::serialize(&parsed).unwrap()
-                }
-                DataType::Float => {
-                    let parsed: f32 = value.parse::<f32>().map_err(|_| {
-                        io::Error::new(io::ErrorKind::InvalidInput, "Invalid float value")
-                    })?;
-                    bincode::serialize(&parsed).unwrap()
-                }
-                DataType::Text => bincode::serialize(&value).unwrap(),
-                DataType::Boolean => {
-                    let parsed: bool = value.parse().map_err(|_| {
-                        io::Error::new(io::ErrorKind::InvalidInput, "Invalid boolean value")
-                    })?;
-                    bincode::serialize(&parsed).unwrap()
-                }
-            };
+            let serialized_value = serialize_value(value, &column.data_type)?;
             row_data.extend(serialized_value);
         }
 
-        append_vec_of_bytes_to_file(vec![vec![row_data]], self.name.as_str())?;
+        write_vec_of_bytes_to_file(vec![vec![row_data]], self.name.as_str())?;
 
         Ok(())
     }
@@ -278,9 +258,9 @@ impl UpdateDefinition {
 
     pub fn load_data(&self) -> io::Result<HashMap<String, Vec<Value>>> {
 
-        let table_def = read_table_definition(self.table_name.as_str())?;
+        let table_def = read_table_definition(self.table_name.as_str()).unwrap();
 
-        let all_rows: Vec<HashMap<String, Value>> = read_vec_of_bytes_from_file(self.table_name.as_str())?;
+        let all_rows: Vec<HashMap<String, Value>> = read_vec_of_bytes_from_file(self.table_name.as_str()).unwrap();
 
         let mut column_map: HashMap<String, Vec<Value>> = HashMap::new();
 
@@ -376,7 +356,20 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
 
         let new_vals = ShaderExecutor.main(total_wgsl_code, column_map, table_def);
 
-        let reconstructed_rows = reconstruct_rows(new_vals);
+        let reconstructed_rows = reconstruct_rows(new_vals.clone());
+
+        let updated_data: Vec<Vec<Vec<u8>>> = reconstructed_rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|(_, value)| serialize_from_value(value).unwrap())
+                    .collect()
+            })
+            .collect();
+
+        write_vec_of_bytes_to_file(updated_data, self.table_name.as_str());
+
+        let reconstructed_rows = reconstruct_rows(new_vals.clone());
         print_table(reconstructed_rows);
 
         let empty_map: HashMap<String, Vec<Value>> = HashMap::new();
