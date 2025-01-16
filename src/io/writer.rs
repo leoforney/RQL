@@ -70,16 +70,17 @@ pub fn serialize_value(value: &str, data_type: &DataType) -> io::Result<Vec<u8>>
 
 
 
-pub fn write_vec_of_bytes_to_file(data: Vec<Vec<Vec<u8>>>, table_name: &str) -> io::Result<()> {
+pub fn write_vec_of_bytes_to_file(data: Vec<Vec<Vec<u8>>>, table_name: &str, append: bool) -> io::Result<()> {
     fs::create_dir_all("data")?;
 
     let table_name_lowercase = table_name.to_lowercase() + "_data.bin";
     let file_path = format!("data/{}", table_name_lowercase);
 
     let mut file = OpenOptions::new()
-        .write(true)
+        .append(append)
+        .write(!append)
         .create(true)
-        .truncate(true)
+        .truncate(!append)
         .open(file_path)?;
 
     for row in data {

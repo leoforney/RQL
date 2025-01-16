@@ -155,7 +155,7 @@ impl InsertDefinition {
             row_data.extend(serialized_value);
         }
 
-        write_vec_of_bytes_to_file(vec![vec![row_data]], self.name.as_str())?;
+        write_vec_of_bytes_to_file(vec![vec![row_data]], self.name.as_str(), true)?;
 
         Ok(())
     }
@@ -367,7 +367,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
             })
             .collect();
 
-        write_vec_of_bytes_to_file(updated_data, self.table_name.as_str());
+        write_vec_of_bytes_to_file(updated_data, self.table_name.as_str(), false);
 
         let reconstructed_rows = reconstruct_rows(new_vals.clone());
         print_table(reconstructed_rows);
@@ -378,6 +378,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
     }
 
     pub fn execute() {
-
+        // TODO: Separate into execute and load
     }
 }

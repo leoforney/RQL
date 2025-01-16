@@ -78,8 +78,6 @@ Updates table values and their entirety using `rqle`. This expression language i
 
 The operation runs on GPU or CPU using wgpu.
 
-_Note although UPDATE should physically update the data, it currently just prints the updated data to console. This data is not persisted_
-
 Example:
 
 ```
